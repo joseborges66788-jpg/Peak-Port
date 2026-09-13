@@ -3,11 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-    <base href="https://cdn.jsdelivr.net/gh/wasmdotrip/Peak-Port@main/">
+    <base href="https://cdn.jsdelivr.net/gh/joseborges66788-jpg/Peak-Port@main/">
     <title>PEAK</title>
     <style>
-      /* black, not the Unity brown: whatever the canvas does not cover reads as a
-         letterbox bar rather than a strip of a different colour hanging off the bottom */
       html, body { margin: 0; padding: 0; background: #000; height: 100%;
                    overflow: hidden; }
       #wrap { display: flex; flex-direction: column; align-items: center;
@@ -33,7 +31,10 @@
   </head>
   <body>
     <div id="wrap">
-      <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
+      <!-- Render target is 640x400 (16:10, same aspect as the original 960x600).
+           CSS stretches it to the full screen. Lower = faster on mobile GPUs.
+           Test with 480x300 if you still need more FPS. -->
+      <canvas id="unity-canvas" width="320" height="200" tabindex="-1"></canvas>
       <div id="bar"><div id="barfill"></div></div>
       <div id="msg">Loading…</div>
     </div>
@@ -79,11 +80,9 @@
   }
 };
       var BUILD = "Build";
-      // Empty for a same-origin build. When set, <base> already redirects the fetches on
-      // this page; this stamps the same root onto our own URL so the C# level streamer
-      // (which resolves bundle URLs against Application.absoluteURL, ignoring <base>)
-      // fetches LevelBundles from the CDN too instead of from wherever the page is hosted.
-      var CDN_BASE = "https://cdn.jsdelivr.net/gh/wasmdotrip/Peak-Port@main";
+      // Point asset fetches at your own fork so edits to Build/ or StreamingAssets/
+      // actually ship. Was: wasmdotrip/Peak-Port@main
+      var CDN_BASE = "https://cdn.jsdelivr.net/gh/joseborges66788-jpg/Peak-Port@main";
       if (CDN_BASE) {
         var u = new URL(window.location.href);
         if (u.searchParams.get("cdn") !== CDN_BASE) {
@@ -91,20 +90,16 @@
           history.replaceState(null, "", u.toString());
         }
       }
-
       var canvas  = document.querySelector("#unity-canvas");
       var bar     = document.querySelector("#bar");
       var barfill = document.querySelector("#barfill");
       var msg     = document.querySelector("#msg");
-
       function setMsg(t) { msg.textContent = t; }
       function mb(bytes) { return (bytes / 1048576).toFixed(1); }
-
       // Total download size, measured at package time — no HEAD requests needed, and it
       // stays correct even if the CDN omits Content-Length on a streamed response.
       var TOTAL = MANIFEST.data.bytes + MANIFEST.framework.bytes + MANIFEST.code.bytes;
       var downloaded = 0;
-
       function report(label) {
         bar.style.display = "block";
         var pct = TOTAL ? downloaded / TOTAL : 0;
@@ -112,11 +107,6 @@
         setMsg("Downloading " + label + "… " + mb(downloaded) + " / " + mb(TOTAL) +
                " MB (" + Math.floor(pct * 100) + "%)");
       }
-
-      // Fetch every part and glue them into one Blob, then expose it as a blob: URL.
-      // Unity's loader treats it like any other URL, so splitting stays invisible to it.
-      // The body is read through a stream reader so the byte counter moves continuously
-      // instead of jumping once per completed part.
       async function assemble(entry, label) {
         var urls = entry.parts || [entry.file];
         var buffers = [];
@@ -134,7 +124,6 @@
               report(label);
             }
           } else {
-            // no streaming support: fall back to whole-part reads
             var buf = await res.arrayBuffer();
             buffers.push(buf);
             downloaded += buf.byteLength;
@@ -143,13 +132,11 @@
         }
         return URL.createObjectURL(new Blob(buffers));
       }
-
       (async function () {
         try {
           var dataUrl      = await assemble(MANIFEST.data, "game data");
           var frameworkUrl = await assemble(MANIFEST.framework, "framework");
           var codeUrl      = await assemble(MANIFEST.code, "code");
-
           setMsg("Starting…");
           var script = document.createElement("script");
           script.src = BUILD + "/" + MANIFEST.loader.file;
@@ -162,6 +149,9 @@
               companyName: "Aggro Crab & Landfall",
               productName: "PEAK",
               productVersion: "1.62.a",
+              // Keep rendering at the canvas size instead of upscaling to device
+              // pixel ratio. Minor safety, the custom loader mostly ignores it.
+              matchWebGLToCanvasSize: false
             }, function (p) {
               bar.style.display = "block";
               barfill.style.width = Math.round(p * 100) + "%";
@@ -170,8 +160,6 @@
               window.unityInstance = instance;
               bar.style.display = "none";
               setMsg("");
-              // Unity's own SetFullscreen keeps the canvas sized to the screen; the
-              // Fullscreen API on the element alone leaves the render target unchanged.
               var fs = document.querySelector("#fs");
               fs.style.display = "block";
               fs.onclick = function () {
